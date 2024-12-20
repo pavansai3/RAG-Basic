@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RAG Document Query</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+            line-height: 1.6;
+            background-color: #f4f4f4;
+            color: #333;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .container {
+            background-color: white;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            padding: 30px;
+        }
+        h1 {
+            text-align: center;
+            color: #2c3e50;
+            margin-bottom: 20px;
+        }
+        .file-upload {
+            margin-bottom: 20px;
+        }
+        #fileInput {
+            display: none;
+        }
+        .file-upload-label {
+            display: block;
+            width: 100%;
+            padding: 15px;
+            background-color: #3498db;
+            color: white;
+            text-align: center;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: background-color 0.3s ease;
+        }
+        .file-upload-label:hover {
+            background-color: #2980b9;
+        }
+        #fileList {
+            margin-top: 10px;
+            font-size: 0.9em;
+            color: #666;
+            max-height: 150px;
+            overflow-y: auto;
+        }
+        .file-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background-color: #f1f1f1;
+            margin: 5px 0;
+            padding: 8px;
+            border-radius: 4px;
+        }
+        .remove-file {
+            color: #e74c3c;
+            cursor: pointer;
+            font-weight: bold;
+        }
+        .query-section {
+            margin-top: 20px;
+        }
+        #queryInput {
+            width: 100%;
+            padding: 10px;
+            margin-bottom: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        #submitQuery {
+            width: 100%;
+            padding: 12px;
+            background-color: #2ecc71;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: background-color 0.3s ease;
+        }
+        #submitQuery:hover {
+            background-color: #27ae60;
+        }
+        #result {
+            margin-top: 20px;
+            background-color: #f9f9f9;
+            padding: 15px;
+            border-radius: 5px;
+            border: 1px solid #e0e0e0;
+        }
+        #contexts {
+            margin-top: 15px;
+            font-size: 0.9em;
+            color: #666;
+        }
+        .loading {
+            text-align: center;
+            color: #3498db;
+            display: none;
+        }
+        .error {
+            color: #e74c3c;
+            margin-top: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>RAG Document Query</h1>
+        
+        <div class="file-upload">
+            <input type="file" id="fileInput" multiple accept=".pdf,.docx,.txt">
+            <label for="fileInput" class="file-upload-label">
+                Upload Documents
+            </label>
+            <div id="fileList"></div>
+        </div>
+
+        <div class="query-section">
+            <input type="text" id="queryInput" placeholder="Enter your query...">
+            <button id="submitQuery">Query Documents</button>
+            <div class="loading" id="loading">Loading...</div>
+            <div class="error" id="error"></div>
+            <div id="result"></div>
+            <div id="contexts"></div>
+        </div>
+    </div>
+
+    <script>
+        const fileInput = document.getElementById('fileInput');
+        const fileList = document.getElementById('fileList');
+        const queryInput = document.getElementById('queryInput');
+        const submitQuery = document.getElementById('submitQuery');
+        const result = document.getElementById('result');
+        const contexts = document.getElementById('contexts');
+        const loading = document.getElementById('loading');
+        const error = document.getElementById('error');
+
+        // Tracks selected files
+        let selectedFiles = [];
+
+        // File upload handling
+        fileInput.addEventListener('change', function() {
+            // Convert FileList to Array and add to selectedFiles
+            Array.from(this.files).forEach(file => {
+                // Check for duplicates
+                if (!selectedFiles.some(f => f.name === file.name)) {
+                    selectedFiles.push(file);
+                }
+            });
+
+            // Render file list
+            renderFileList();
+        });
+
+        // Render file list with remove option
+        function renderFileList() {
+            fileList.innerHTML = '';
+            selectedFiles.forEach((file, index) => {
+                const fileItem = document.createElement('div');
+                fileItem.className = 'file-item';
+                
+                // File name
+                const fileName = document.createElement('span');
+                fileName.textContent = file.name;
+                
+                // Remove button
+                const removeBtn = document.createElement('span');
+                removeBtn.textContent = '✕';
+                removeBtn.className = 'remove-file';
+                removeBtn.onclick = () => {
+                    // Remove file from selectedFiles
+                    selectedFiles.splice(index, 1);
+                    renderFileList();
+                };
+
+                fileItem.appendChild(fileName);
+                fileItem.appendChild(removeBtn);
+                fileList.appendChild(fileItem);
+            });
+        }
+
+        // Document upload
+        async function uploadDocuments() {
+            if (selectedFiles.length === 0) {
+                error.textContent = 'Please select documents to upload.';
+                return false;
+            }
+
+            const formData = new FormData();
+            selectedFiles.forEach(file => {
+                formData.append('files', file);
+            });
+
+            try {
+                loading.style.display = 'block';
+                const response = await fetch('/upload-documents/', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                if (!response.ok) {
+                    throw new Error('Document upload failed');
+                }
+
+                return true;
+            } catch (err) {
+                error.textContent = `Upload error: ${err.message}`;
+                return false;
+            } finally {
+                loading.style.display = 'none';
+            }
+        }
+
+        // Query documents
+        async function queryDocuments() {
+            const query = queryInput.value.trim();
+            if (!query) {
+                error.textContent = 'Please enter a query.';
+                return;
+            }
+
+            // Reset previous state
+            result.innerHTML = '';
+            contexts.innerHTML = '';
+            error.textContent = '';
+            loading.style.display = 'block';
+
+            try {
+                const response = await fetch('/query/', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ query: query })
+                });
+
+                if (!response.ok) {
+                    throw new Error('Query failed');
+                }
+
+                const data = await response.json();
+                
+                // Display answer
+                result.innerHTML = `<strong>Answer:</strong> ${data.answer}`;
+                
+                // Display contexts
+                if (data.contexts && data.contexts.length > 0) {
+                    contexts.innerHTML = '<strong>Retrieved Contexts:</strong>';
+                    data.contexts.forEach((context, index) => {
+                        const contextEl = document.createElement('div');
+                        contextEl.textContent = `Context ${index + 1}: ${context.text}`;
+                        contexts.appendChild(contextEl);
+                    });
+                }
+            } catch (err) {
+                error.textContent = `Query error: ${err.message}`;
+            } finally {
+                loading.style.display = 'none';
+            }
+        }
+
+        // Event listeners
+        submitQuery.addEventListener('click', async () => {
+            // Ensure documents are uploaded first
+            const uploaded = await uploadDocuments();
+            if (uploaded) {
+                queryDocuments();
+            }
+        });
+    </script>
+</body>
+</html>
